@@ -1,5 +1,6 @@
 from datetime import date, timedelta
 
+from odoo import Command
 from odoo.exceptions import UserError
 from odoo.tests import tagged
 from odoo.tests.common import TransactionCase
@@ -48,7 +49,7 @@ class TestAccountMove(TransactionCase):
         # Cuentas contables
         cls.account_income = cls.env["account.account"].search(
             [
-                ("company_id", "=", cls.company.id),
+                ("company_ids", "in", cls.company.id),
                 ("account_type", "=", "income"),
             ],
             limit=1,
@@ -59,13 +60,13 @@ class TestAccountMove(TransactionCase):
                     "name": "Ingresos por Ventas",
                     "code": "400001",
                     "account_type": "income",
-                    "company_id": cls.company.id,
+                    "company_ids": [Command.link(cls.company.id)],
                 }
             )
 
         cls.account_receivable = cls.env["account.account"].search(
             [
-                ("company_id", "=", cls.company.id),
+                ("company_ids", "in", cls.company.id),
                 ("account_type", "=", "asset_receivable"),
             ],
             limit=1,
@@ -77,7 +78,7 @@ class TestAccountMove(TransactionCase):
                     "code": "110001",
                     "account_type": "asset_receivable",
                     "reconcile": True,
-                    "company_id": cls.company.id,
+                    "company_ids": [Command.link(cls.company.id)],
                 }
             )
 
@@ -121,32 +122,71 @@ class TestAccountMove(TransactionCase):
         )
 
         # Impuestos (incluidos en el precio para SIFEN)
-        cls.tax_10 = cls.Tax.create(
-            {
-                "name": "IVA 10%",
-                "amount": 10.0,
-                "amount_type": "percent",
-                "type_tax_use": "sale",
-                "price_include": True,
-            }
+        # El chart de cuentas PY ya provee impuestos "IVA 10%"/"IVA 5%"/
+        # "Exento" para type_tax_use=sale — referenciarlos en vez de
+        # duplicarlos (el nombre debe ser único por compañía/tipo/país).
+        cls.tax_10 = cls.Tax.search(
+            [
+                ("name", "=", "IVA 10%"),
+                ("type_tax_use", "=", "sale"),
+                ("company_id", "=", cls.company.id),
+            ],
+            limit=1,
         )
-        cls.tax_5 = cls.Tax.create(
-            {
-                "name": "IVA 5%",
-                "amount": 5.0,
-                "amount_type": "percent",
-                "type_tax_use": "sale",
-                "price_include": True,
-            }
+        if not cls.tax_10:
+            cls.tax_10 = cls.Tax.create(
+                {
+                    "name": "IVA 10%",
+                    "amount": 10.0,
+                    "amount_type": "percent",
+                    "type_tax_use": "sale",
+                    "company_id": cls.company.id,
+                    "price_include_override": "tax_included",
+                }
+            )
+        else:
+            cls.tax_10.price_include_override = "tax_included"
+
+        cls.tax_5 = cls.Tax.search(
+            [
+                ("name", "=", "IVA 5%"),
+                ("type_tax_use", "=", "sale"),
+                ("company_id", "=", cls.company.id),
+            ],
+            limit=1,
         )
-        cls.tax_exempt = cls.Tax.create(
-            {
-                "name": "Exento",
-                "amount": 0.0,
-                "amount_type": "percent",
-                "type_tax_use": "sale",
-            }
+        if not cls.tax_5:
+            cls.tax_5 = cls.Tax.create(
+                {
+                    "name": "IVA 5%",
+                    "amount": 5.0,
+                    "amount_type": "percent",
+                    "type_tax_use": "sale",
+                    "company_id": cls.company.id,
+                    "price_include_override": "tax_included",
+                }
+            )
+        else:
+            cls.tax_5.price_include_override = "tax_included"
+
+        cls.tax_exempt = cls.Tax.search(
+            [
+                ("name", "=", "Exento"),
+                ("type_tax_use", "=", "sale"),
+                ("company_id", "=", cls.company.id),
+            ],
+            limit=1,
         )
+        if not cls.tax_exempt:
+            cls.tax_exempt = cls.Tax.create(
+                {
+                    "name": "Exento",
+                    "amount": 0.0,
+                    "amount_type": "percent",
+                    "type_tax_use": "sale",
+                    "company_id": cls.company.id,
+                }
+            )
 
         # Productos
         cls.product_10 = cls.Product.create(
@@ -268,7 +308,7 @@ class TestAccountMove(TransactionCase):
         """F02: Factura de compra sin timbrado → OK (no requiere timbrado propio)"""
         account_payable = self.env["account.account"].search(
             [
-                ("company_id", "=", self.company.id),
+                ("company_ids", "in", self.company.id),
                 ("account_type", "=", "liability_payable"),
             ],
             limit=1,
@@ -280,13 +320,13 @@ class TestAccountMove(TransactionCase):
                     "code": "210001",
                     "account_type": "liability_payable",
                     "reconcile": True,
-                    "company_id": self.company.id,
+                    "company_ids": [Command.link(self.company.id)],
                 }
             )
 
         expense_account = self.env["account.account"].search(
             [
-                ("company_id", "=", self.company.id),
+                ("company_ids", "in", self.company.id),
                 ("account_type", "=", "expense"),
             ],
             limit=1,
@@ -297,7 +337,7 @@ class TestAccountMove(TransactionCase):
                     "name": "Gastos",
                     "code": "500001",
                     "account_type": "expense",
-                    "company_id": self.company.id,
+                    "company_ids": [Command.link(self.company.id)],
                 }
             )
 
